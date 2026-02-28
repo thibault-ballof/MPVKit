@@ -486,13 +486,15 @@ private class BuildMPV: BaseBuild {
             array.append("-Dvideotoolbox-gl=disabled")
             array.append("-Dvideotoolbox-pl=enabled")
             array.append("-Dswift-build=disabled")
-            array.append("-Daudiounit=enabled")
-            array.append("-Davfoundation=enabled")
             array.append("-Dlua=disabled")
             if platform == .maccatalyst {
                 array.append("-Dcocoa=disabled")
                 array.append("-Dcoreaudio=disabled")
+                array.append("-Daudiounit=disabled")
+                array.append("-Davfoundation=disabled")
             } else {
+                array.append("-Daudiounit=enabled")
+                array.append("-Davfoundation=enabled")
                 array.append("-Dios-gl=enabled")
             }
         }
