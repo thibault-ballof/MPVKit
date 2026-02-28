@@ -73,8 +73,6 @@ class ArgumentOptions {
                             options.platforms += [PlatformType.ios, PlatformType.isimulator]
                         case "tvos":
                             options.platforms += [PlatformType.tvos, PlatformType.tvsimulator]
-                        case "xros":
-                            options.platforms += [PlatformType.xros, PlatformType.xrsimulator]
                         default:
                             guard let other = PlatformType(rawValue: platformStr) else { throw NSError(domain: "unknown platform: \(val)", code: 1) } 
                             if !options.platforms.contains(other) {
@@ -92,13 +90,12 @@ class ArgumentOptions {
 
 class BaseBuild {
     static let defaultPath = "/Library/Frameworks/Python.framework/Versions/Current/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    static var platforms = PlatformType.allCases
+    static var platforms = PlatformType.allCases.filter { $0 != .xros && $0 != .xrsimulator }
     static var options = ArgumentOptions()
     static let splitPlatformGroups = [
         PlatformType.macos.rawValue: [PlatformType.macos, PlatformType.maccatalyst],
         PlatformType.ios.rawValue: [PlatformType.ios, PlatformType.isimulator],
         PlatformType.tvos.rawValue: [PlatformType.tvos, PlatformType.tvsimulator],
-        PlatformType.xros.rawValue: [PlatformType.xros, PlatformType.xrsimulator]
     ]
     let library: Library
     let directoryURL: URL
