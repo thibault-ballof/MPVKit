@@ -482,6 +482,7 @@ private class BuildMPV: BaseBuild {
             array.append("-Dmacos-touchbar=disabled")
             array.append("-Dmacos-media-player=disabled")
             array.append("-Dlua=disabled")
+            array.append("-Dvo-pip=enabled")
         } else {
             array.append("-Dvideotoolbox-gl=disabled")
             array.append("-Dvideotoolbox-pl=enabled")
@@ -489,6 +490,7 @@ private class BuildMPV: BaseBuild {
             array.append("-Dlua=disabled")
             array.append("-Daudiounit=enabled")
             array.append("-Davfoundation=enabled")
+            array.append("-Dvo-pip=enabled")
             if platform == .maccatalyst {
                 array.append("-Dcocoa=disabled")
                 array.append("-Dcoreaudio=disabled")

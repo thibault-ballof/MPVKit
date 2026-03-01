@@ -1,0 +1,267 @@
+diff --git a/meson.build b/meson.build
+index e610998..a1b2c3e 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1326,6 +1326,15 @@ if host_machine.system() == 'darwin'
+     endif
+ endif
+
++if host_machine.system() == 'darwin'
++    vo_pip = get_option('vo-pip')
++    features += {'vo-pip': vo_pip.allowed()}
++    if features['vo-pip']
++        sources += files('video/out/vo_pip.m')
++        dependencies += dependency('AVFoundation', required: false)
++    endif
++endif
++
+ features += {'vk-khr-display': vulkan.type_name() == 'internal' or
+                                cc.has_function('vkCreateDisplayPlaneSurfaceKHR', prefix: '#include <vulkan/vulkan_core.h>',
+                                                dependencies: [vulkan])}
+diff --git a/meson.options b/meson.options
+index 6ed28af..b3c4e5f 100644
+--- a/meson.options
++++ b/meson.options
+@@ -102,6 +102,7 @@ option('ios-gl', type: 'feature', value: 'auto', description: 'iOS OpenGL ES in
+ option('videotoolbox-gl', type: 'feature', value: 'auto', description: 'Videotoolbox with OpenGL')
+ option('videotoolbox-pl', type: 'feature', value: 'auto', description: 'Videotoolbox with libplacebo')
+ option('moltenvk', type: 'feature', value: 'auto', description: 'Moltenvk context')
++option('vo-pip', type: 'feature', value: 'auto', description: 'PiP video output (AVSampleBufferDisplayLayer)')
+
+ # macOS features
+ option('macos-10-15-4-features', type: 'feature', value: 'auto', description: 'macOS 10.15.4 SDK Features')
+diff --git a/video/out/vo.c b/video/out/vo.c
+index 05a390c..c1d2e3a 100644
+--- a/video/out/vo.c
++++ b/video/out/vo.c
+@@ -73,6 +73,7 @@ extern const struct vo_driver video_out_gpu;
+ extern const struct vo_driver video_out_gpu_next;
+ extern const struct vo_driver video_out_libmpv;
+ extern const struct vo_driver video_out_null;
++extern const struct vo_driver video_out_pip;
+ extern const struct vo_driver video_out_vdpau;
+ extern const struct vo_driver video_out_direct3d;
+ extern const struct vo_driver video_out_sdl;
+@@ -118,6 +119,9 @@ static const struct vo_driver *const video_out_drivers[] =
+     &video_out_null,
+     // Below are "building block" VOs or similar, not auto-probed
+     &video_out_image,
++#if HAVE_VO_PIP
++    &video_out_pip,
++#endif
+     &video_out_tct,
+     &video_out_kitty,
+     &video_out_sixel,
+diff --git a/video/out/vo_pip.m b/video/out/vo_pip.m
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/video/out/vo_pip.m
+@@ -0,0 +1,194 @@
++/*
++ * PiP video output — feeds CVPixelBuffers from VideoToolbox
++ * to an AVSampleBufferDisplayLayer for iOS/macOS Picture-in-Picture.
++ *
++ * WinID must point to an AVSampleBufferDisplayLayer instance.
++ *
++ * This VO only accepts IMGFMT_VIDEOTOOLBOX frames (hardware-decoded
++ * CVPixelBuffers). It wraps each frame in a CMSampleBuffer and
++ * enqueues it on the display layer.
++ *
++ * This file is part of mpv.
++ *
++ * mpv is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * mpv is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#import <AVFoundation/AVFoundation.h>
++#import <CoreMedia/CoreMedia.h>
++#import <CoreVideo/CoreVideo.h>
++
++#include "common/msg.h"
++#include "video/img_format.h"
++#include "video/mp_image.h"
++#include "vo.h"
++
++struct priv {
++    AVSampleBufferDisplayLayer *layer;
++    CMTimebase *timebase;
++};
++
++static CMSampleBufferRef create_sample_buffer(CVPixelBufferRef pixbuf, CMTimebaseRef timebase)
++{
++    if (!pixbuf)
++        return NULL;
++
++    CMVideoFormatDescriptionRef fmt_desc = NULL;
++    OSStatus status = CMVideoFormatDescriptionCreateForImageBuffer(
++        kCFAllocatorDefault, pixbuf, &fmt_desc);
++    if (status != noErr || !fmt_desc)
++        return NULL;
++
++    // Use the timebase's current time so the layer displays frames immediately
++    CMTime pts = CMTimebaseGetTime(timebase);
++    CMSampleTimingInfo timing = {
++        .duration = kCMTimeInvalid,
++        .presentationTimeStamp = pts,
++        .decodeTimeStamp = kCMTimeInvalid,
++    };
++
++    CMSampleBufferRef sample_buf = NULL;
++    status = CMSampleBufferCreateReadyWithImageBuffer(
++        kCFAllocatorDefault, pixbuf, fmt_desc, &timing, &sample_buf);
++    CFRelease(fmt_desc);
++
++    if (status != noErr)
++        return NULL;
++
++    // Mark as display-immediately so the layer doesn't try to schedule
++    CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(sample_buf, true);
++    if (attachments && CFArrayGetCount(attachments) > 0) {
++        CFMutableDictionaryRef dict =
++            (CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments, 0);
++        CFDictionarySetValue(dict,
++            kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
++    }
++
++    return sample_buf;
++}
++
++static int preinit(struct vo *vo)
++{
++    struct priv *p = vo->priv;
++
++    if (vo->opts->WinID == -1) {
++        MP_ERR(vo, "vo_pip requires --wid pointing to an AVSampleBufferDisplayLayer\n");
++        return -1;
++    }
++
++    p->layer = (__bridge AVSampleBufferDisplayLayer *)(void *)(intptr_t)vo->opts->WinID;
++    if (!p->layer) {
++        MP_ERR(vo, "vo_pip: invalid layer pointer\n");
++        return -1;
++    }
++
++    // Create a timebase anchored to the host clock so the display layer
++    // has a time reference for frame scheduling
++    CMTimebaseRef timebase = NULL;
++    OSStatus status;
++#if TARGET_OS_IPHONE
++    // iOS 15.4+: use CMTimebaseCreateWithSourceClock
++    if (@available(iOS 15.4, *)) {
++        status = CMTimebaseCreateWithSourceClock(
++            kCFAllocatorDefault, CMClockGetHostTimeClock(), &timebase);
++    } else {
++        // Fallback for iOS < 15.4
++        status = CMTimebaseCreateWithMasterClock(
++            kCFAllocatorDefault, CMClockGetHostTimeClock(), &timebase);
++    }
++#else
++    status = CMTimebaseCreateWithSourceClock(
++        kCFAllocatorDefault, CMClockGetHostTimeClock(), &timebase);
++#endif
++    if (status != noErr) {
++        MP_ERR(vo, "vo_pip: failed to create CMTimebase\n");
++        return -1;
++    }
++    CMTimebaseSetRate(timebase, 1.0);
++    CMTimebaseSetTime(timebase, kCMTimeZero);
++    p->timebase = timebase;
++
++    // Attach timebase to the display layer's controlTimebase so it knows
++    // when to display frames
++    p->layer.controlTimebase = timebase;
++
++    MP_VERBOSE(vo, "vo_pip: initialized with AVSampleBufferDisplayLayer\n");
++    return 0;
++}
++
++static int query_format(struct vo *vo, int format)
++{
++    return format == IMGFMT_VIDEOTOOLBOX;
++}
++
++static int reconfig(struct vo *vo, struct mp_image_params *params)
++{
++    return 0;
++}
++
++static bool draw_frame(struct vo *vo, struct vo_frame *frame)
++{
++    struct priv *p = vo->priv;
++
++    struct mp_image *img = frame->current;
++    if (!img)
++        return true;
++
++    // For IMGFMT_VIDEOTOOLBOX, the CVPixelBufferRef is in planes[3]
++    CVPixelBufferRef pixbuf = (CVPixelBufferRef)img->planes[3];
++    if (!pixbuf) {
++        MP_WARN(vo, "vo_pip: frame has no CVPixelBuffer\n");
++        return true;
++    }
++
++    CMSampleBufferRef sample = create_sample_buffer(pixbuf, p->timebase);
++    if (!sample) {
++        MP_WARN(vo, "vo_pip: failed to create CMSampleBuffer\n");
++        return true;
++    }
++
++    // Check layer status before enqueuing
++    if (p->layer.status == AVQueuedSampleBufferRenderingStatusFailed) {
++        MP_WARN(vo, "vo_pip: layer in failed state, flushing\n");
++        [p->layer flush];
++    }
++
++    [p->layer enqueueSampleBuffer:sample];
++    CFRelease(sample);
++
++    return true;
++}
++
++static void flip_page(struct vo *vo)
++{
++    // No-op: AVSampleBufferDisplayLayer handles its own presentation
++}
++
++static int control(struct vo *vo, uint32_t request, void *data)
++{
++    return VO_NOTIMPL;
++}
++
++static void uninit(struct vo *vo)
++{
++    struct priv *p = vo->priv;
++    if (p->layer) {
++        [p->layer flushAndRemoveImage];
++        p->layer.controlTimebase = NULL;
++    }
++    if (p->timebase) {
++        CFRelease(p->timebase);
++        p->timebase = NULL;
++    }
++}
++
++const struct vo_driver video_out_pip = {
++    .description = "PiP via AVSampleBufferDisplayLayer",
++    .name = "pip",
++    .caps = VO_CAP_NORETAIN,
++    .preinit = preinit,
++    .query_format = query_format,
++    .reconfig = reconfig,
++    .control = control,
++    .draw_frame = draw_frame,
++    .flip_page = flip_page,
++    .uninit = uninit,
++    .priv_size = sizeof(struct priv),
++};
