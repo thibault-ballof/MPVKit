@@ -54,6 +54,59 @@ index d8bdc59..fab07ae 100644
  bool ca_init_chmap(struct ao *ao, AudioDeviceID device);
  void ca_get_active_chmap(struct ao *ao, AudioDeviceID device, int channel_count,
                           struct mp_chmap *out_map);
+diff --git forkSrcPrefix/audio/out/ao_coreaudio_utils.c forkDstPrefix/audio/out/ao_coreaudio_utils.c
+index 8ff76a8..0b321c1 100644
+--- forkSrcPrefix/audio/out/ao_coreaudio_utils.c
++++ forkDstPrefix/audio/out/ao_coreaudio_utils.c
+@@ -28,14 +28,14 @@
+ #include "audio/format.h"
+ #include "osdep/mac/compat.h"
+ 
+-#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
++#if HAVE_COREAUDIO
+ #include "audio/out/ao_coreaudio_properties.h"
+ #include <CoreAudio/HostTime.h>
+ #else
+ #include <mach/mach_time.h>
+ #endif
+ 
+-#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
++#if HAVE_COREAUDIO
+ static bool ca_is_output_device(struct ao *ao, AudioDeviceID dev)
+ {
+     size_t n_buffers;
+@@ -80,7 +80,13 @@ void ca_get_device_list(struct ao *ao, struct ao_device_list *list)
+ coreaudio_error:
+     return;
+ }
++#else
++void ca_get_device_list(struct ao *ao, struct ao_device_list *list)
++{
++}
++#endif
+ 
++#if HAVE_COREAUDIO
+ OSStatus ca_select_device(struct ao *ao, char* name, AudioDeviceID *device)
+ {
+     OSStatus err = noErr;
+@@ -300,7 +306,7 @@ int64_t ca_frames_to_ns(struct ao *ao, uint32_t frames)
+ 
+ int64_t ca_get_latency(const AudioTimeStamp *ts)
+ {
+-#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
++#if HAVE_COREAUDIO
+     uint64_t out = AudioConvertHostTimeToNanos(ts->mHostTime);
+     uint64_t now = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime());
+ 
+@@ -323,7 +329,7 @@ int64_t ca_get_latency(const AudioTimeStamp *ts)
+ #endif
+ }
+ 
+-#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
++#if HAVE_COREAUDIO
+ bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream)
+ {
+     AudioStreamRangedDescription *formats = NULL;
 diff --git forkSrcPrefix/audio/out/ao_coreaudio_utils.h forkDstPrefix/audio/out/ao_coreaudio_utils.h
 index 85f674b..6df8005 100644
 --- forkSrcPrefix/audio/out/ao_coreaudio_utils.h
@@ -76,3 +129,18 @@ index 85f674b..6df8005 100644
  bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream);
  OSStatus ca_lock_device(AudioDeviceID device, pid_t *pid);
  OSStatus ca_unlock_device(AudioDeviceID device, pid_t *pid);
+diff --git forkSrcPrefix/meson.build forkDstPrefix/meson.build
+index fb10be5..2d0500d 100644
+--- forkSrcPrefix/meson.build
++++ forkDstPrefix/meson.build
+@@ -838,10 +838,6 @@ if features['audiounit'] or features['coreaudio'] or features['avfoundation']
+                      'audio/out/ao_coreaudio_utils.c')
+ endif
+ 
+-if features['avfoundation']
+-    sources += files('audio/out/ao_coreaudio_properties.c')
+-endif
+-
+ jack_opt = get_option('jack').require(
+     get_option('gpl'),
+     error_message: 'the build is not GPL!',
