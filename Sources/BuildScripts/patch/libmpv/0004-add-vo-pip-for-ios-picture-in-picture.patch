@@ -1,63 +1,63 @@
 diff --git a/meson.build b/meson.build
-index f6f8e7f..4f96357 100644
+index f6f8e7f..f0b8d2d 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -1341,6 +1341,15 @@ if host_machine.system() == 'darwin'
-     endif
+@@ -823,6 +823,15 @@ if features['avfoundation']
+     sources += files('audio/out/ao_avfoundation.m')
  endif
  
-+if host_machine.system() == 'darwin'
-+    vo_pip = get_option('vo-pip')
-+    features += {'vo-pip': vo_pip.allowed()}
-+    if features['vo-pip']
-+        sources += files('video/out/vo_pip.m')
-+        dependencies += dependency('AVFoundation', required: false)
-+    endif
++vo_pip_deps = dependency('appleframeworks',
++                         modules: ['CoreMedia', 'AVFoundation', 'CoreVideo'],
++                         required: get_option('vo-pip'))
++features += {'vo-pip': vo_pip_deps.found()}
++if features['vo-pip']
++    dependencies += vo_pip_deps
++    sources += files('video/out/vo_pip.m')
 +endif
 +
- features += {'vk-khr-display': vulkan.type_name() == 'internal' or
-                                cc.has_function('vkCreateDisplayPlaneSurfaceKHR', prefix: '#include <vulkan/vulkan_core.h>',
-                                                dependencies: [vulkan])}
+ coreaudio = dependency('appleframeworks', modules: ['CoreFoundation', 'CoreAudio',
+                        'AudioUnit', 'AudioToolbox'], required: get_option('coreaudio'))
+ features += {'coreaudio': coreaudio.found()}
 diff --git a/meson.options b/meson.options
-index 81bc931..eda2e10 100644
+index 81bc931..395a7b4 100644
 --- a/meson.options
 +++ b/meson.options
-@@ -104,6 +104,7 @@ option('ios-gl', type: 'feature', value: 'auto', description: 'iOS OpenGL ES int
- option('videotoolbox-gl', type: 'feature', value: 'auto', description: 'Videotoolbox with OpenGL')
- option('videotoolbox-pl', type: 'feature', value: 'auto', description: 'Videotoolbox with libplacebo')
- option('moltenvk', type: 'feature', value: 'auto', description: 'Moltenvk context')
-+option('vo-pip', type: 'feature', value: 'auto', description: 'PiP video output (AVSampleBufferDisplayLayer)')
- 
- # macOS features
- option('macos-10-15-4-features', type: 'feature', value: 'auto', description: 'macOS 10.15.4 SDK Features')
+@@ -43,6 +43,7 @@ option('alsa', type: 'feature', value: 'auto', description: 'ALSA audio output')
+ option('audiounit', type: 'feature', value: 'auto', description: 'AudioUnit output (iOS)')
+ option('coreaudio', type: 'feature', value: 'auto', description: 'CoreAudio audio output')
+ option('avfoundation', type: 'feature', value: 'auto', description: 'AVFoundation audio output')
++option('vo-pip', type: 'feature', value: 'auto', description: 'PiP video output via AVSampleBufferDisplayLayer')
+ option('jack', type: 'feature', value: 'auto', description: 'JACK audio output')
+ option('openal', type: 'feature', value: 'disabled', description: 'OpenAL audio output')
+ option('audiotrack', type: 'feature', value: 'auto', description: 'Android AudioTrack audio output')
 diff --git a/video/out/vo.c b/video/out/vo.c
-index c9cde30..e0c0599 100644
+index c9cde30..676f25a 100644
 --- a/video/out/vo.c
 +++ b/video/out/vo.c
-@@ -54,6 +54,7 @@ extern const struct vo_driver video_out_gpu;
- extern const struct vo_driver video_out_gpu_next;
- extern const struct vo_driver video_out_libmpv;
- extern const struct vo_driver video_out_null;
+@@ -66,6 +66,7 @@ extern const struct vo_driver video_out_wlshm;
+ extern const struct vo_driver video_out_tct;
+ extern const struct vo_driver video_out_sixel;
+ extern const struct vo_driver video_out_kitty;
 +extern const struct vo_driver video_out_pip;
- extern const struct vo_driver video_out_image;
- extern const struct vo_driver video_out_lavc;
- extern const struct vo_driver video_out_caca;
-@@ -105,6 +106,9 @@ static const struct vo_driver *const video_out_drivers[] =
  
-     // should not be auto-selected
-     &video_out_image,
+ static const struct vo_driver *const video_out_drivers[] =
+ {
+@@ -116,6 +117,9 @@ static const struct vo_driver *const video_out_drivers[] =
+     &video_out_sixel,
+ #endif
+     &video_out_kitty,
 +#if HAVE_VO_PIP
 +    &video_out_pip,
 +#endif
-     &video_out_tct,
- #if HAVE_CACA
-     &video_out_caca,
+     &video_out_lavc,
+ };
+ 
 diff --git a/video/out/vo_pip.m b/video/out/vo_pip.m
 new file mode 100644
-index 0000000..dca8522
+index 0000000..1b4921c
 --- /dev/null
 +++ b/video/out/vo_pip.m
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,214 @@
 +/*
 + * PiP video output — feeds CVPixelBuffers from VideoToolbox
 + * to an AVSampleBufferDisplayLayer for iOS/macOS Picture-in-Picture.
@@ -67,6 +67,9 @@ index 0000000..dca8522
 + * This VO only accepts IMGFMT_VIDEOTOOLBOX frames (hardware-decoded
 + * CVPixelBuffers). It wraps each frame in a CMSampleBuffer and
 + * enqueues it on the display layer.
++ *
++ * Provides its own VideoToolbox hwdec device context so that
++ * hardware decoding works without a GPU VO (no OpenGL/Vulkan needed).
 + *
 + * This file is part of mpv.
 + *
@@ -88,14 +91,18 @@ index 0000000..dca8522
 +#import <CoreMedia/CoreMedia.h>
 +#import <CoreVideo/CoreVideo.h>
 +
++#include <libavutil/hwcontext.h>
++
 +#include "common/msg.h"
 +#include "video/img_format.h"
 +#include "video/mp_image.h"
++#include "video/hwdec.h"
 +#include "vo.h"
 +
 +struct priv {
 +    AVSampleBufferDisplayLayer *layer;
 +    CMTimebaseRef timebase;
++    struct mp_hwdec_ctx hwctx;
 +};
 +
 +static CMSampleBufferRef create_sample_buffer(CVPixelBufferRef pixbuf, CMTimebaseRef timebase)
@@ -163,6 +170,24 @@ index 0000000..dca8522
 +
 +    p->layer.controlTimebase = timebase;
 +
++    // Register VideoToolbox hwdec device context so that hwdec=videotoolbox
++    // works with this VO (no GPU context needed for PiP).
++    p->hwctx = (struct mp_hwdec_ctx){
++        .driver_name = "pip",
++        .hw_imgfmt = IMGFMT_VIDEOTOOLBOX,
++    };
++
++    int ret = av_hwdevice_ctx_create(&p->hwctx.av_device_ref,
++                                     AV_HWDEVICE_TYPE_VIDEOTOOLBOX, NULL, NULL, 0);
++    if (ret != 0) {
++        MP_ERR(vo, "vo_pip: failed to create VideoToolbox device context\n");
++        CFRelease(timebase);
++        p->timebase = NULL;
++        return -1;
++    }
++
++    hwdec_devices_add(vo->hwdec_devs, &p->hwctx);
++
 +    MP_VERBOSE(vo, "vo_pip: initialized with AVSampleBufferDisplayLayer\n");
 +    return 0;
 +}
@@ -220,6 +245,10 @@ index 0000000..dca8522
 +static void uninit(struct vo *vo)
 +{
 +    struct priv *p = vo->priv;
++
++    hwdec_devices_remove(vo->hwdec_devs, &p->hwctx);
++    av_buffer_unref(&p->hwctx.av_device_ref);
++
 +    if (p->layer) {
 +        [p->layer flushAndRemoveImage];
 +        p->layer.controlTimebase = NULL;
