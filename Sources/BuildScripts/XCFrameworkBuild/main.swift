@@ -798,7 +798,7 @@ private class BuildFFMPEG: BaseBuild {
         "--enable-filter=rotate",
         "--enable-filter=scale", "--enable-filter=setpts", "--enable-filter=superequalizer",
         "--enable-filter=transpose", "--enable-filter=trim",
-        "--enable-filter=vflip", "--enable-filter=volume",
+        "--enable-filter=vflip", "--enable-filter=volume", "--enable-filter=loudnorm",
         "--enable-filter=w3fdif",
         "--enable-filter=yadif",
         "--enable-filter=avgblur_vulkan", "--enable-filter=blend_vulkan",
