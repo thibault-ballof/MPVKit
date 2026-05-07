@@ -1168,6 +1168,9 @@ enum PlatformType: String, CaseIterable {
         // 不能同时有强符合和弱符号出现
         // cflags.append("-fno-common")
 //        }
+        if self == .maccatalyst {
+            cflags += ["-iframework", "\(isysroot)/System/iOSSupport/System/Library/Frameworks"]
+        }
         if self == .tvos || self == .tvsimulator {
             cflags.append("-DHAVE_FORK=0")
         }
@@ -1442,4 +1445,3 @@ extension URL {
         return url
     }
 }
-

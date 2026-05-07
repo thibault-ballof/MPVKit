@@ -20,6 +20,13 @@ let package = Package(
             path: "Sources/_MPVKit",
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreImage"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("AppKit", .when(platforms: [.macOS])),
+                .linkedFramework("UIKit", .when(platforms: [.iOS, .tvOS])),
                 .linkedFramework("CoreAudio"),
             ]
         ),
