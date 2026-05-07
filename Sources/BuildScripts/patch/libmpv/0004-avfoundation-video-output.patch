@@ -7,8 +7,8 @@ Subject: [PATCH] AVfoundation video output
  meson.build                 |   15 +
  meson.options               |    1 +
  video/out/vo.c              |    4 +
- video/out/vo_avfoundation.m | 1003 +++++++++++++++++++++++++++++++++++
- 4 files changed, 1023 insertions(+)
+ video/out/vo_avfoundation.m | 1011 +++++++++++++++++++++++++++++++++++
+ 4 files changed, 1031 insertions(+)
  create mode 100644 video/out/vo_avfoundation.m
 
 diff --git a/meson.build b/meson.build
@@ -77,7 +77,7 @@ new file mode 100644
 index 0000000000..1b3e13aece
 --- /dev/null
 +++ b/video/out/vo_avfoundation.m
-@@ -0,0 +1,1003 @@
+@@ -0,0 +1,1011 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -164,6 +164,15 @@ index 0000000000..1b3e13aece
 +    dispatch_async(dispatch_get_main_queue(), ^{
 +        p->osdLayer.frame = p->displayLayer.bounds;
 +    });
++}
++
++static void dispatch_main_sync_safe(dispatch_block_t block)
++{
++    if ([NSThread isMainThread]) {
++        block();
++    } else {
++        dispatch_sync(dispatch_get_main_queue(), block);
++    }
 +}
 +
 +static AVBufferRef *create_videotoolbox_device_ref(struct vo *vo)
@@ -495,7 +504,7 @@ index 0000000000..1b3e13aece
 +                    p->cachedSubtitleImage = NULL;
 +                }
 +            } else {
-+                dispatch_async(dispatch_get_main_queue(), ^{
++                dispatch_main_sync_safe(^{
 +                    [CATransaction begin];
 +                    [CATransaction setDisableActions:YES];
 +                    p->osdLayer.contents = nil;
@@ -519,13 +528,13 @@ index 0000000000..1b3e13aece
 +        return;
 +
 +    if (p->composite_osd) {
-+        // Compositing mode: cache the image for use in draw_frame
++        // Compositing mode: cache the image for use at the next flip.
 +        if (p->cachedSubtitleImage)
 +            CGImageRelease(p->cachedSubtitleImage);
 +        p->cachedSubtitleImage = subtitleImage;
 +    } else {
 +        // CALayer mode: update layer on main thread
-+        dispatch_async(dispatch_get_main_queue(), ^{
++        dispatch_main_sync_safe(^{
 +            [CATransaction begin];
 +            [CATransaction setDisableActions:YES];
 +            p->osdLayer.contents = (__bridge id)subtitleImage;
@@ -592,7 +601,7 @@ index 0000000000..1b3e13aece
 +                p->cachedSubtitleImage = NULL;
 +            }
 +        } else if (p->osdLayer) {
-+            dispatch_async(dispatch_get_main_queue(), ^{
++            dispatch_main_sync_safe(^{
 +                [CATransaction begin];
 +                [CATransaction setDisableActions:YES];
 +                p->osdLayer.contents = nil;
@@ -813,51 +822,10 @@ index 0000000000..1b3e13aece
 +    return 0;
 +}
 +
-+static void flip_page(struct vo *vo)
-+{
-+    struct priv *p = vo->priv;
-+
-+    // In CALayer mode, render OSD here (video was enqueued in draw_frame)
-+    if (!p->composite_osd) {
-+        render_osd(vo, p->next_pts);
-+    }
-+
-+    // Flush excess buffers every ~60 frames to prevent memory growth
-+    // without causing buffer churn on every frame
-+    if (++p->frame_count >= 60) {
-+        p->frame_count = 0;
-+        if (p->outputPool)
-+            CVPixelBufferPoolFlush(p->outputPool, kCVPixelBufferPoolFlushExcessBuffers);
-+        if (p->swUploadPool)
-+            CVPixelBufferPoolFlush(p->swUploadPool, kCVPixelBufferPoolFlushExcessBuffers);
-+    }
-+
-+    mp_image_unrefp(&p->next_image);
-+}
-+
-+static bool draw_frame(struct vo *vo, struct vo_frame *frame)
++static bool enqueue_frame(struct vo *vo, mp_image_t *mpi)
 +{
 +    @autoreleasepool {
 +        struct priv *p = vo->priv;
-+
-+        mp_image_t *mpi = NULL;
-+        if (!frame->redraw && !frame->repeat)
-+            mpi = mp_image_new_ref(frame->current);
-+
-+        talloc_free(p->next_image);
-+
-+        if (!mpi) {
-+            p->next_image = NULL;
-+            return true;
-+        }
-+
-+        double pts = mpi->pts;
-+        if (pts == MP_NOPTS_VALUE && frame->current)
-+            pts = frame->current->pts;
-+        if (pts == MP_NOPTS_VALUE)
-+            pts = frame->pts;
-+
-+        p->next_pts = pts;
 +
 +        CVPixelBufferRef pixbuf = NULL;
 +        bool pixbufNeedsRelease = false;
@@ -871,7 +839,6 @@ index 0000000000..1b3e13aece
 +            pixbuf = upload_software_frame(vo, mpi);
 +            if (!pixbuf) {
 +                MP_ERR(vo, "Failed to upload software frame\n");
-+                mp_image_unrefp(&mpi);
 +                return false;
 +            }
 +            pixbufNeedsRelease = true;
@@ -880,10 +847,8 @@ index 0000000000..1b3e13aece
 +        CVPixelBufferRef finalBuffer = pixbuf;
 +        bool needsRelease = false;
 +
-+        // In composite mode, render OSD and composite onto frame
++        // In composite mode, composite the subtitle image rendered for this flip.
 +        if (p->composite_osd) {
-+            render_osd(vo, pts);
-+
 +            CVPixelBufferRef composited = composite_frame(vo, pixbuf);
 +            if (composited) {
 +                finalBuffer = composited;
@@ -910,7 +875,6 @@ index 0000000000..1b3e13aece
 +                CVPixelBufferRelease(finalBuffer);
 +            if (pixbufNeedsRelease)
 +                CVPixelBufferRelease(pixbuf);
-+            mp_image_unrefp(&mpi);
 +            return false;
 +        }
 +
@@ -923,7 +887,6 @@ index 0000000000..1b3e13aece
 +                CVPixelBufferRelease(finalBuffer);
 +            if (pixbufNeedsRelease)
 +                CVPixelBufferRelease(pixbuf);
-+            mp_image_unrefp(&mpi);
 +            return false;
 +        }
 +
@@ -947,10 +910,55 @@ index 0000000000..1b3e13aece
 +        if (pixbufNeedsRelease)
 +            CVPixelBufferRelease(pixbuf);
 +
-+        p->next_image = mpi;
-+
 +        return true;
 +    }
++}
++
++static void flip_page(struct vo *vo)
++{
++    struct priv *p = vo->priv;
++
++    if (p->next_image) {
++        render_osd(vo, p->next_pts);
++        enqueue_frame(vo, p->next_image);
++    }
++
++    // Flush excess buffers every ~60 frames to prevent memory growth
++    // without causing buffer churn on every frame
++    if (++p->frame_count >= 60) {
++        p->frame_count = 0;
++        if (p->outputPool)
++            CVPixelBufferPoolFlush(p->outputPool, kCVPixelBufferPoolFlushExcessBuffers);
++        if (p->swUploadPool)
++            CVPixelBufferPoolFlush(p->swUploadPool, kCVPixelBufferPoolFlushExcessBuffers);
++    }
++
++    mp_image_unrefp(&p->next_image);
++}
++
++static bool draw_frame(struct vo *vo, struct vo_frame *frame)
++{
++    struct priv *p = vo->priv;
++
++    mp_image_unrefp(&p->next_image);
++
++    if (!frame->current || (frame->repeat && !frame->redraw)) {
++        p->next_pts = MP_NOPTS_VALUE;
++        return true;
++    }
++
++    p->next_image = mp_image_new_ref(frame->current);
++    if (!p->next_image)
++        return false;
++
++    double pts = p->next_image->pts;
++    if (pts == MP_NOPTS_VALUE)
++        pts = frame->current->pts;
++    if (pts == MP_NOPTS_VALUE)
++        pts = frame->pts;
++
++    p->next_pts = pts;
++    return true;
 +}
 +
 +static int query_format(struct vo *vo, int format)
@@ -1069,7 +1077,7 @@ index 0000000000..1b3e13aece
 +const struct vo_driver video_out_avfoundation = {
 +    .description = "AVFoundation AVSampleBufferDisplayLayer (macOS/iOS)",
 +    .name = "avfoundation",
-+    .caps = VO_CAP_NORETAIN,
++    .caps = 0,
 +    .preinit = preinit,
 +    .query_format = query_format,
 +    .control = control,

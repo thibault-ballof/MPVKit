@@ -531,9 +531,9 @@ private class BuildFFMPEG: BaseBuild {
 
     override func flagsDependencelibrarys() -> [Library] {
         if BaseBuild.options.enableGPL {
-            return [.gmp, .nettle, .gnutls, .libsmbclient]
+            return [.gmp, .nettle, .gnutls, .libdovi, .libsmbclient]
         } else {
-            return [.gmp, .nettle, .gnutls]
+            return [.gmp, .nettle, .gnutls, .libdovi]
         }
     }
 
