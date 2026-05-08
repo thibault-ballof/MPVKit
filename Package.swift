@@ -178,37 +178,37 @@ let package = Package(
 
         .binaryTarget(
             name: "Libavcodec",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libavcodec.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libavcodec.xcframework.zip",
             checksum: "adace49d545d99a4efa1fe48a7f620fe37ad2c498c494687716328700057b485"
         ),
         .binaryTarget(
             name: "Libavdevice",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libavdevice.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libavdevice.xcframework.zip",
             checksum: "b796bd16e76b38ead995b115db1f7634df5d4be532a3414244c587ba267221c5"
         ),
         .binaryTarget(
             name: "Libavformat",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libavformat.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libavformat.xcframework.zip",
             checksum: "8e28fe804c2fea5643fc6fe442e4bfe097dd04c8795e93c185da533532c9762f"
         ),
         .binaryTarget(
             name: "Libavfilter",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libavfilter.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libavfilter.xcframework.zip",
             checksum: "b5729f1323196d9484138c9d02a16daa9c45f4f36431c05d6491f17fa4deb9e1"
         ),
         .binaryTarget(
             name: "Libavutil",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libavutil.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libavutil.xcframework.zip",
             checksum: "7790ea4af39cb6a2ff82d0a7645e009a3eda67a5ddcef322f7d3fee225b9b66b"
         ),
         .binaryTarget(
             name: "Libswresample",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libswresample.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libswresample.xcframework.zip",
             checksum: "706b49c51552fab692dfe336e86c396c4c959487b9ba4d3b7094ee9ebfc262ef"
         ),
         .binaryTarget(
             name: "Libswscale",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libswscale.xcframework.zip",
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libswscale.xcframework.zip",
             checksum: "a0e8d617cd029ceae698360064f78255f0cb65b3247890b0a2f69e9a3f8094d3"
         ),
 
@@ -220,8 +220,8 @@ let package = Package(
 
         .binaryTarget(
             name: "Libmpv",
-            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv/Libmpv.xcframework.zip",
-            checksum: "dab8bd0086a71505224c041e0e36f99f2a067065f36d7de6504d514b6fd4ea83"
+            url: "https://github.com/edde746/MPVKit/releases/download/avfoundation-dv-pip/Libmpv.xcframework.zip",
+            checksum: "4d4b137e06dd5d160b49c88eceaa843437d810b8473708c4a6a2b316682ca441"
         ),
         //AUTO_GENERATE_TARGETS_END//
     ]
