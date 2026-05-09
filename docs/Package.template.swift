@@ -34,9 +34,9 @@ let package = Package(
             name: "_FFmpeg",
             dependencies: [
                 "Libavcodec", "Libavdevice", "Libavfilter", "Libavformat", "Libavutil", "Libswresample", "Libswscale",
-                "Libssl", "Libcrypto", "Libass", "Libfreetype", "Libfribidi", "Libharfbuzz",
+                "Libass", "Libfreetype", "Libfribidi", "Libharfbuzz",
                 "MoltenVK", "Libshaderc_combined", "lcms2", "Libplacebo", "Libdovi", "Libunibreak",
-                "Libsmbclient", "gmp", "nettle", "hogweed", "gnutls", "Libdav1d", "Libuavs3d"
+                "Libdav1d", "Libuavs3d"
             ],
             path: "Sources/_FFmpeg",
             linkerSettings: [
@@ -45,6 +45,7 @@ let package = Package(
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("Metal"),
+                .linkedFramework("Security"),
                 .linkedFramework("VideoToolbox"),
                 .linkedLibrary("bz2"),
                 .linkedLibrary("iconv"),

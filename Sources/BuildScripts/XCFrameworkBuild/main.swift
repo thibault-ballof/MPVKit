@@ -4,21 +4,12 @@ do {
     let options = try ArgumentOptions.parse(CommandLine.arguments)
     try Build.performCommand(options)
 
-    // SSL
-    try BuildOpenSSL().buildALL()
-    try BuildGmp().buildALL()
-    try BuildNettle().buildALL()
-    try BuildGnutls().buildALL()
-
     // libass
     try BuildUnibreak().buildALL()
     try BuildFreetype().buildALL()
     try BuildFribidi().buildALL()
     try BuildHarfbuzz().buildALL()
     try BuildASS().buildALL()
-
-    // libsmbclient
-    try BuildSmbclient().buildALL()
 
     // libbluray
     try BuildBluray().buildALL()
@@ -42,23 +33,14 @@ do {
 }
 
 enum Library: String, CaseIterable {
-    case libmpv, FFmpeg, libshaderc, vulkan, lcms2, libdovi, openssl, libunibreak, libfreetype,
-        libfribidi, libharfbuzz, libass, libsmbclient, libplacebo, libdav1d, gmp, nettle, gnutls,
-        libuchardet, libbluray, libuavs3d
+    case libmpv, FFmpeg, libshaderc, vulkan, lcms2, libdovi, libunibreak, libfreetype,
+        libfribidi, libharfbuzz, libass, libplacebo, libdav1d, libuchardet, libbluray, libuavs3d
     var version: String {
         switch self {
         case .libmpv:
             return "v0.41.0"
         case .FFmpeg:
             return "n8.0.1"
-        case .openssl:
-            return "3.3.5"
-        case .gnutls:
-            return "3.8.11"
-        case .nettle:
-            return "3.8.11"
-        case .gmp:
-            return "3.8.11"
         case .libass:
             return "0.17.4"
         case .libunibreak:
@@ -69,8 +51,6 @@ enum Library: String, CaseIterable {
             return "0.17.4"
         case .libharfbuzz:
             return "0.17.4"
-        case .libsmbclient:
-            return "4.15.13-2512"
         case .libdav1d:    // AV1 decoding
             return "1.5.2-xcode"
         case .lcms2:
@@ -98,18 +78,6 @@ enum Library: String, CaseIterable {
             return "https://github.com/mpv-player/mpv"
         case .FFmpeg:
             return "https://github.com/FFmpeg/FFmpeg"
-        case .openssl:
-            return
-                "https://github.com/mpvkit/openssl-build/releases/download/\(self.version)/openssl-all.zip"
-        case .gnutls:
-            return
-                "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gnutls-all.zip"
-        case .nettle:
-            return
-                "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/nettle-all.zip"
-        case .gmp:
-            return
-                "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gmp-all.zip"
         case .libass:
             return
                 "https://github.com/mpvkit/libass-build/releases/download/\(self.version)/libass-all.zip"
@@ -125,9 +93,6 @@ enum Library: String, CaseIterable {
         case .libharfbuzz:
             return
                 "https://github.com/mpvkit/libass-build/releases/download/\(self.version)/libharfbuzz-all.zip"
-        case .libsmbclient:
-            return
-                "https://github.com/mpvkit/libsmbclient-build/releases/download/\(self.version)/libsmbclient-all.zip"
         case .lcms2:
             return
                 "https://github.com/mpvkit/lcms2-build/releases/download/\(self.version)/lcms2-all.zip"
@@ -215,60 +180,6 @@ enum Library: String, CaseIterable {
                     checksum: ""
                 ),
             ]
-        case .openssl:
-            return [
-                .target(
-                    name: "Libcrypto",
-                    url:
-                        "https://github.com/mpvkit/openssl-build/releases/download/\(self.version)/Libcrypto.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/openssl-build/releases/download/\(self.version)/Libcrypto.xcframework.checksum.txt"
-                ),
-                .target(
-                    name: "Libssl",
-                    url:
-                        "https://github.com/mpvkit/openssl-build/releases/download/\(self.version)/Libssl.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/openssl-build/releases/download/\(self.version)/Libssl.xcframework.checksum.txt"
-                ),
-            ]
-        case .gnutls:
-            return [
-                .target(
-                    name: "gnutls",
-                    url:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gnutls.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gnutls.xcframework.checksum.txt"
-                )
-            ]
-        case .nettle:
-            return [
-                .target(
-                    name: "nettle",
-                    url:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/nettle.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/nettle.xcframework.checksum.txt"
-                ),
-                .target(
-                    name: "hogweed",
-                    url:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/hogweed.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/hogweed.xcframework.checksum.txt"
-                ),
-            ]
-        case .gmp:
-            return [
-                .target(
-                    name: "gmp",
-                    url:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gmp.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/gnutls-build/releases/download/\(self.version)/gmp.xcframework.checksum.txt"
-                )
-            ]
         case .libass:
             return [
                 .target(
@@ -317,16 +228,6 @@ enum Library: String, CaseIterable {
                         "https://github.com/mpvkit/libass-build/releases/download/\(self.version)/Libharfbuzz.xcframework.zip",
                     checksum:
                         "https://github.com/mpvkit/libass-build/releases/download/\(self.version)/Libharfbuzz.xcframework.checksum.txt"
-                )
-            ]
-        case .libsmbclient:
-            return [
-                .target(
-                    name: "Libsmbclient",
-                    url:
-                        "https://github.com/mpvkit/libsmbclient-build/releases/download/\(self.version)/Libsmbclient.xcframework.zip",
-                    checksum:
-                        "https://github.com/mpvkit/libsmbclient-build/releases/download/\(self.version)/Libsmbclient.xcframework.checksum.txt"
                 )
             ]
         case .lcms2:
@@ -429,11 +330,7 @@ private class BuildMPV: BaseBuild {
     }
 
     override func flagsDependencelibrarys() -> [Library] {
-        if BaseBuild.options.enableGPL {
-            return [.gmp, .libsmbclient]
-        } else {
-            return [.gmp]
-        }
+        []
     }
 
     override func arguments(platform: PlatformType, arch: ArchType) -> [String] {
@@ -446,17 +343,15 @@ private class BuildMPV: BaseBuild {
             "-Dvulkan=enabled",
             "-Dmoltenvk=enabled",  // from patch option
 
+            // ytdl_hook.lua is scripting-backed; keep scripting disabled for app builds.
             "-Djavascript=disabled",
+            "-Dlua=disabled",
             "-Dzimg=disabled",
             "-Djpeg=disabled",
             "-Dvapoursynth=disabled",
             "-Drubberband=disabled",
         ]
-        if BaseBuild.options.enableGPL {
-            array.append("-Dgpl=true")
-        } else {
-            array.append("-Dgpl=false")
-        }
+        array.append("-Dgpl=true")
         let blurayLibPath =
             URL.currentDirectory + [
                 Library.libbluray.rawValue, platform.rawValue, "thin", arch.rawValue,
@@ -482,12 +377,10 @@ private class BuildMPV: BaseBuild {
             array.append("-Dvideotoolbox-pl=enabled")
             array.append("-Dmacos-touchbar=disabled")
             array.append("-Dmacos-media-player=disabled")
-            array.append("-Dlua=disabled")
         } else {
             array.append("-Dvideotoolbox-gl=disabled")
             array.append("-Dvideotoolbox-pl=enabled")
             array.append("-Dswift-build=disabled")
-            array.append("-Dlua=disabled")
             array.append("-Daudiounit=enabled")
             array.append("-Davfoundation=enabled")
             array.append("-Dvo-avfoundation=enabled")
@@ -530,45 +423,7 @@ private class BuildFFMPEG: BaseBuild {
     }
 
     override func flagsDependencelibrarys() -> [Library] {
-        if BaseBuild.options.enableGPL {
-            return [.gmp, .nettle, .gnutls, .libdovi, .libsmbclient]
-        } else {
-            return [.gmp, .nettle, .gnutls, .libdovi]
-        }
-    }
-
-    override func cFlags(platform: PlatformType, arch: ArchType) -> [String] {
-        var cFlags = super.cFlags(platform: platform, arch: arch)
-
-        // append special libsmbclient include path
-        if BaseBuild.options.enableGPL {
-            let path = thinDir(library: .libsmbclient, platform: platform, arch: arch)
-            if FileManager.default.fileExists(atPath: path.path) {
-                cFlags.append("-I\(path.path)/include/samba-4.0")
-            }
-        }
-
-        return cFlags
-    }
-
-    override func ldFlags(platform: PlatformType, arch: ArchType) -> [String] {
-        var ldFlags = super.ldFlags(platform: platform, arch: arch)
-
-        var path = thinDir(library: .nettle, platform: platform, arch: arch)
-        if FileManager.default.fileExists(atPath: path.path) {
-            ldFlags.append("-lhogweed")
-        }
-        path = thinDir(library: .gnutls, platform: platform, arch: arch)
-        if FileManager.default.fileExists(atPath: path.path) {
-            ldFlags.append(contentsOf: ["-framework", "Security", "-framework", "CoreFoundation"])
-        }
-        if BaseBuild.options.enableGPL {
-            path = thinDir(library: .libsmbclient, platform: platform, arch: arch)
-            if FileManager.default.fileExists(atPath: path.path) {
-                ldFlags.append(contentsOf: ["-lresolv", "-lpthread", "-lz", "-liconv"])
-            }
-        }
-        return ldFlags
+        [.libdovi]
     }
 
     override func frameworks() throws -> [String] {
@@ -659,9 +514,7 @@ private class BuildFFMPEG: BaseBuild {
             arguments.append("--enable-stripping")
             arguments.append("--enable-optimizations")
         }
-        if BaseBuild.options.enableGPL {
-            arguments.append("--enable-gpl")
-        }
+        arguments.append("--enable-gpl")
         // arguments += Build.ffmpegConfiguers
         arguments.append("--disable-large-tests")
         arguments.append("--ignore-tests=TESTS")
@@ -693,21 +546,16 @@ private class BuildFFMPEG: BaseBuild {
         //        if platform == .isimulator || platform == .tvsimulator {
         //            arguments.append("--assert-level=1")
         //        }
-        var dependencyLibrary = [
-            Library.gmp, .gnutls, .libfreetype, .libharfbuzz, .libfribidi, .libass, .vulkan,
+        let dependencyLibrary = [
+            Library.libfreetype, .libharfbuzz, .libfribidi, .libass, .vulkan,
             .libshaderc, .lcms2, .libplacebo, .libdav1d, .libuavs3d,
         ]
-        if BaseBuild.options.enableGPL {
-            dependencyLibrary += [.libsmbclient]
-        }
         for library in dependencyLibrary {
             let path =
                 URL.currentDirectory + [library.rawValue, platform.rawValue, "thin", arch.rawValue]
             if FileManager.default.fileExists(atPath: path.path) {
                 arguments.append("--enable-\(library.rawValue)")
-                if library == .libsmbclient {
-                    arguments.append("--enable-protocol=\(library.rawValue)")
-                } else if library == .libdav1d || library == .libuavs3d {
+                if library == .libdav1d || library == .libuavs3d {
                     arguments.append("--enable-decoder=\(library.rawValue)")
                 } else if library == .libass {
                     arguments.append("--enable-filter=ass")
@@ -750,6 +598,8 @@ private class BuildFFMPEG: BaseBuild {
         // Component options:
         "--enable-avcodec", "--enable-avformat", "--enable-avutil", "--enable-network",
         "--enable-swresample", "--enable-swscale",
+        "--enable-securetransport", "--disable-gnutls", "--disable-openssl",
+        "--disable-libtls", "--disable-mbedtls",
         "--disable-devices", "--disable-outdevs", "--disable-indevs",
         // ,"--disable-pthreads"
         // ,"--disable-w32threads"
@@ -830,30 +680,6 @@ private class BuildPlacebo: ZipBaseBuild {
     }
 }
 
-private class BuildOpenSSL: ZipBaseBuild {
-    init() {
-        super.init(library: .openssl)
-    }
-}
-
-private class BuildGmp: ZipBaseBuild {
-    init() {
-        super.init(library: .gmp)
-    }
-}
-
-private class BuildNettle: ZipBaseBuild {
-    init() {
-        super.init(library: .nettle)
-    }
-}
-
-private class BuildGnutls: ZipBaseBuild {
-    init() {
-        super.init(library: .gnutls)
-    }
-}
-
 private class BuildASS: ZipBaseBuild {
     init() {
         super.init(library: .libass)
@@ -882,13 +708,6 @@ private class BuildHarfbuzz: ZipBaseBuild {
     init() {
         super.init(library: .libharfbuzz)
     }
-}
-
-private class BuildSmbclient: ZipBaseBuild {
-    init() {
-        super.init(library: .libsmbclient)
-    }
-
 }
 
 private class BuildDav1d: ZipBaseBuild {
