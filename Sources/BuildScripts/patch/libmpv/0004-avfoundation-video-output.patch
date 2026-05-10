@@ -7,7 +7,7 @@ Subject: [PATCH] AVfoundation video output
  meson.build                 |   15 +
  meson.options               |    1 +
  video/out/vo.c              |    4 +
- video/out/vo_avfoundation.m | 1026 +++++++++++++++++++++++++++++++++++
+ video/out/vo_avfoundation.m | 1159 +++++++++++++++++++++++++++++++++++
  4 files changed, 1045 insertions(+)
  create mode 100644 video/out/vo_avfoundation.m
 
@@ -77,7 +77,7 @@ new file mode 100644
 index 0000000000..1b3e13aece
 --- /dev/null
 +++ b/video/out/vo_avfoundation.m
-@@ -0,0 +1,1026 @@
+@@ -0,0 +1,1159 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -125,6 +125,8 @@ index 0000000000..1b3e13aece
 +
 +    struct mp_image *next_image;
 +    double next_pts;
++    CMTimebaseRef timebase;
++    int64_t next_present_host_ns;
 +    __strong AVSampleBufferDisplayLayer *displayLayer;
 +
 +    // OSD/Subtitle support (CALayer mode)
@@ -166,7 +168,7 @@ index 0000000000..1b3e13aece
 +#endif
 +}
 +
-+// Helper to sync OSD layer frame with display layer bounds
++// Helper to sync OSD layer frame with display layer frame.
 +static void sync_osd_layer_frame(struct priv *p)
 +{
 +    if (p->composite_osd || !p->osdLayer || !p->displayLayer)
@@ -174,11 +176,36 @@ index 0000000000..1b3e13aece
 +    dispatch_async(dispatch_get_main_queue(), ^{
 +        [CATransaction begin];
 +        [CATransaction setDisableActions:YES];
-+        p->displayLayer.masksToBounds = YES;
-+        p->osdLayer.frame = p->displayLayer.bounds;
++        if (p->osdLayer.superlayer == p->displayLayer) {
++            p->osdLayer.frame = p->displayLayer.bounds;
++        } else {
++            p->osdLayer.frame = p->displayLayer.frame;
++            p->osdLayer.zPosition = p->displayLayer.zPosition + 1;
++        }
 +        p->osdLayer.contentsScale = get_screen_scale();
 +        [CATransaction commit];
 +    });
++}
++
++static bool wait_until_ready_for_more_media_data(struct vo *vo, int64_t present_host_ns)
++{
++    struct priv *p = vo->priv;
++    if ([p->displayLayer isReadyForMoreMediaData])
++        return true;
++
++    int64_t now = mp_time_ns();
++    int64_t deadline = present_host_ns > 0 ? present_host_ns : now;
++    int64_t give_up = MPMAX(deadline + MP_TIME_MS_TO_NS(8), now + MP_TIME_MS_TO_NS(2));
++
++    while (![p->displayLayer isReadyForMoreMediaData]) {
++        if (mp_time_ns() >= give_up) {
++            MP_VERBOSE(vo, "Display layer not ready; dropping late frame\n");
++            return false;
++        }
++        mp_sleep_ns(MP_TIME_MS_TO_NS(1));
++    }
++
++    return true;
 +}
 +
 +static void dispatch_main_sync_safe(dispatch_block_t block)
@@ -751,6 +778,20 @@ index 0000000000..1b3e13aece
 +    MP_VERBOSE(vo, "displayLayer: %p, composite_osd: %s\n",
 +               p->displayLayer, p->composite_osd ? "yes" : "no");
 +
++    if (CMTimebaseCreateWithSourceClock(kCFAllocatorDefault,
++                                        CMClockGetHostTimeClock(),
++                                        &p->timebase) != noErr || !p->timebase) {
++        MP_ERR(vo, "Failed to create display layer timebase\n");
++        return -1;
++    }
++
++    CMTimebaseSetTime(p->timebase, CMTimeMake(mp_time_ns(), NSEC_PER_SEC));
++    CMTimebaseSetRate(p->timebase, 1.0);
++    dispatch_main_sync_safe(^{
++        p->displayLayer.controlTimebase = p->timebase;
++    });
++    vo_set_queue_params(vo, 16 * 1000 * 1000, 1);
++
 +    // Setup Metal and Core Image for compositing mode (HDR-compatible)
 +    if (p->composite_osd) {
 +        p->mtlDevice = MTLCreateSystemDefaultDevice();
@@ -805,14 +846,10 @@ index 0000000000..1b3e13aece
 +
 +    // Create OSD layer only if not in composite mode
 +    if (!p->composite_osd) {
-+        dispatch_sync(dispatch_get_main_queue(), ^{
-+            p->displayLayer.masksToBounds = YES;
-+
++        dispatch_main_sync_safe(^{
 +            p->osdLayer = [CALayer layer];
-+            CGRect bounds = p->displayLayer.bounds;
-+            p->osdLayer.frame = bounds;
++            p->osdLayer.frame = p->displayLayer.frame;
 +            p->osdLayer.anchorPoint = CGPointMake(0.5, 0.5);
-+            p->osdLayer.position = CGPointMake(CGRectGetMidX(bounds), CGRectGetMidY(bounds));
 +#if !TARGET_OS_IPHONE
 +            p->osdLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
 +#endif
@@ -820,9 +857,16 @@ index 0000000000..1b3e13aece
 +            p->osdLayer.backgroundColor = NULL;
 +            p->osdLayer.opaque = NO;
 +            p->osdLayer.contentsGravity = kCAGravityResizeAspect;
-+            p->osdLayer.masksToBounds = YES;
 +
-+            [p->displayLayer addSublayer:p->osdLayer];
++            CALayer *parent = p->displayLayer.superlayer;
++            if (parent) {
++                [parent addSublayer:p->osdLayer];
++                p->osdLayer.zPosition = p->displayLayer.zPosition + 1;
++            } else {
++                [p->displayLayer addSublayer:p->osdLayer];
++                p->osdLayer.frame = p->displayLayer.bounds;
++                MP_WARN(vo, "displayLayer has no superlayer; OSD will degrade direct scanout\n");
++            }
 +        });
 +    }
 +
@@ -841,6 +885,9 @@ index 0000000000..1b3e13aece
 +{
 +    @autoreleasepool {
 +        struct priv *p = vo->priv;
++
++        if (!wait_until_ready_for_more_media_data(vo, p->next_present_host_ns))
++            return false;
 +
 +        CVPixelBufferRef pixbuf = NULL;
 +        bool pixbufNeedsRelease = false;
@@ -871,12 +918,8 @@ index 0000000000..1b3e13aece
 +            }
 +        }
 +
-+        // Create and enqueue sample buffer
-+        CMTimebaseRef timebase = [p->displayLayer controlTimebase];
-+        CMTime presentationTime = timebase ? CMTimebaseGetTime(timebase) : kCMTimeInvalid;
-+
 +        CMSampleTimingInfo info = {
-+            .presentationTimeStamp = presentationTime,
++            .presentationTimeStamp = CMTimeMake(p->next_present_host_ns, NSEC_PER_SEC),
 +            .duration = kCMTimeInvalid,
 +            .decodeTimeStamp = kCMTimeInvalid
 +        };
@@ -903,15 +946,6 @@ index 0000000000..1b3e13aece
 +            if (pixbufNeedsRelease)
 +                CVPixelBufferRelease(pixbuf);
 +            return false;
-+        }
-+
-+        if (!timebase) {
-+            CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(buf, YES);
-+            CFDictionarySetValue(
-+                (CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments, 0),
-+                kCMSampleAttachmentKey_DisplayImmediately,
-+                kCFBooleanTrue
-+            );
 +        }
 +
 +        [p->displayLayer enqueueSampleBuffer:buf];
@@ -959,6 +993,7 @@ index 0000000000..1b3e13aece
 +
 +    if (!frame->current || (frame->repeat && !frame->redraw)) {
 +        p->next_pts = MP_NOPTS_VALUE;
++        p->next_present_host_ns = mp_time_ns();
 +        return true;
 +    }
 +
@@ -973,6 +1008,7 @@ index 0000000000..1b3e13aece
 +        pts = frame->pts;
 +
 +    p->next_pts = pts;
++    p->next_present_host_ns = frame->pts > 0 ? frame->pts : mp_time_ns();
 +    return true;
 +}
 +
@@ -1031,6 +1067,14 @@ index 0000000000..1b3e13aece
 +    mp_image_unrefp(&p->next_image);
 +    [p->displayLayer flushAndRemoveImage];
 +
++    if (p->timebase) {
++        dispatch_main_sync_safe(^{
++            p->displayLayer.controlTimebase = NULL;
++        });
++        CFRelease(p->timebase);
++        p->timebase = NULL;
++    }
++
 +    if (p->cachedSubtitleImage) {
 +        CGImageRelease(p->cachedSubtitleImage);
 +        p->cachedSubtitleImage = NULL;
@@ -1072,6 +1116,8 @@ index 0000000000..1b3e13aece
 +        // Called when playback stops or video changes
 +        clear_subtitle_state(vo);
 +        [p->displayLayer flushAndRemoveImage];
++        if (p->timebase)
++            CMTimebaseSetTime(p->timebase, CMTimeMake(mp_time_ns(), NSEC_PER_SEC));
 +        return VO_TRUE;
 +    case VOCTRL_REDRAW:
 +        p->osd_change_id = 0;
